@@ -168,6 +168,9 @@ private:
     //
     static std::pair<std::vector<int>, std::vector<int> > GetONNXPadsAttributeFromCNTKNode(const std::vector<bool>& cntkAutoPadding, const NDShape& kernelShape);
 
+    static const std::string CNTKToONNXOpName(const FunctionPtr src);
+
+    static bool SpecHasPatchAxis(const FunctionPtr src, int inputIndex);
     //
     // Adds attributes 'auto_pad' or 'pads' to saved node (typically convolution or pooling).
     //
@@ -613,6 +616,7 @@ ONNXIR::Node* CNTKToONNXHelper::CreateNode(const FunctionPtr& src,
 
             onnx::TypeProto inputArgType;
 
+            bool hasBatchAxis = input.HasBatchAxis() || SpecHasPatchAxis(src, inputIndex);
             if (reshapeNeededForBroadcastConstant)
             {
                 NDShape broadcastShape;
@@ -620,12 +624,13 @@ ONNXIR::Node* CNTKToONNXHelper::CreateNode(const FunctionPtr& src,
                 int axis = 0;
                 std::tie<NDShape, bool, int>(broadcastShape, broadcast, axis) = 
                     AdjustForBroadcastShape(src->Inputs()[0].Shape(), src->Inputs()[1].Shape(),
-                        src->Inputs()[0].HasBatchAxis() && !src->Inputs()[1].HasBatchAxis());
-                inputArgType = broadcast ? ToTypeProto(broadcastShape) : ToTypeProto(input.Shape());
+                        hasBatchAxis);
+                inputArgType = broadcast ? 
+                    ToTypeProto(broadcastShape, hasBatchAxis) : ToTypeProto(input.Shape(), hasBatchAxis);
             }
             else
             {
-                inputArgType = ToTypeProto(input.Shape(), input.HasBatchAxis());
+                inputArgType = ToTypeProto(input.Shape(), hasBatchAxis);
             }
 
             UpdateONNXType(input.GetDataType(), inputArgType);
@@ -981,6 +986,104 @@ void CNTKToONNXHelper::CopyAttributes(const FunctionPtr& src, ONNXIR::Node* node
     }
 }
 
+bool CNTKToONNXHelper::SpecHasPatchAxis(const FunctionPtr src, int inputIndex)
+{
+    std::string onnxOpName = CNTKToONNXHelper::CNTKToONNXOpName(src);
+    if (Operators::HasInputIndexMap(src->OpName()))
+    {
+        std::vector<int> map = Operators::ToONNXInputIndexMap(src->OpName());
+        inputIndex = (int)std::distance(map.begin(), std::find(map.begin(), map.end(), inputIndex));
+    }
+    return Operators::SpecHasPatchAxis(onnxOpName, inputIndex);
+}
+
+const std::string CNTKToONNXHelper::CNTKToONNXOpName(const FunctionPtr src)
+{
+    std::wstring cntkOpName = src->OpName();
+    const std::unordered_multimap<std::wstring, AttributesMapping>& cntkToONNXOpName = 
+        Operators::CntkToONNXLookup();
+    std::pair<CNTKToOnnxMapItConst, CNTKToOnnxMapItConst> rangeIt = cntkToONNXOpName.equal_range(cntkOpName);
+    if (std::distance(rangeIt.first, rangeIt.second) == 1)
+    {
+        // if one to one mapping, ONNX op name is keyed buy CNTK op name
+        return rangeIt.first->second.map.at(cntkOpName);
+    }
+    else
+    {
+        // have to work out with CNTK ops invidually
+        if (cntkOpName == L"Convolution")
+        {
+            auto transpose = (bool)src->Attributes()[L"transpose"].Value<bool>();
+            if (transpose)
+            {
+                return "ConvTranspose";
+            }
+            else
+            {
+                return "Conv";
+            }
+        }
+        else if (cntkOpName == L"Pooling")
+        {
+            PoolingType poolingType = (PoolingType)src->Attributes()[L"poolingType"].Value<size_t>();
+            switch (poolingType)
+            {
+            case PoolingType::Average:
+                return "AveragePool";
+            case PoolingType::Max:
+                return "MaxPool";
+            default:
+                LogicError("Cannnot map CNTK op (%s) to ONNX op name", ToString(cntkOpName).c_str());
+            }
+        }
+        else if (cntkOpName == L"ReduceElements")
+        {
+            wstring cntkAttributeOpName = (wstring)src->Attributes()[PrimitiveFunction::AttributeNameReductionOpName].Value<wstring>();
+            if (cntkAttributeOpName == L"Max")
+            {
+                return "ReduceMax";
+            }
+            else if (cntkAttributeOpName == L"Min")
+            {
+                return "ReduceMin";
+            }
+            else if (cntkAttributeOpName == L"Sum")
+            {
+                return "ReduceSum";
+            }
+            else if (cntkAttributeOpName == L"Mean")
+            {
+                return "ReduceMean";
+            }
+            else if (cntkAttributeOpName == L"Prod")
+            {
+                return "ReduceProd";
+            }
+            else if (cntkAttributeOpName == L"LogSum")
+            {
+                return "ReduceLogSumExp";
+            }
+            else if (cntkAttributeOpName == L"Argmax")
+            {
+                return "ArgMax";
+            }
+            else if (cntkAttributeOpName == L"Argmin")
+            {
+                return "ArgMin";
+            }
+            else
+            {
+                LogicError("Cannnot map CNTK op (%s) (%s) to ONNX op name", 
+                    ToString(cntkOpName).c_str(), ToString(cntkAttributeOpName).c_str());
+            }
+        }
+        else
+        {
+            LogicError("Unsupported cntkOp (%s)", ToString(cntkOpName).c_str());
+        }
+    }
+}
+
 void CNTKToONNXHelper::PutAutopadOrPadAttrInNode(ONNXIR::Node* node, const std::vector<bool>& autoPadding, const NDShape& kernelShape)
 {
     // Based on the CNTK node choose to put either the auto_pad or pads attribute in the ONNX node.
@@ -1047,22 +1150,23 @@ ONNXIR::Node* CNTKToONNXHelper::AddNode(const FunctionPtr& src, ONNXIR::Graph* g
 
         if (reductionRank > 1) // We need to insert reshape.
         {
-            auto input1Reshape = ReduceRank(input1Shape, reductionRank, true);
-            auto input2Reshape = ReduceRank(input2Shape, reductionRank, false);
+            //auto input1Reshape = ReduceRank(input1Shape, reductionRank, true);
+            //auto input2Reshape = ReduceRank(input2Shape, reductionRank, false);
 
-            UpdateONNXType(src->Inputs()[1].GetDataType(), input1Reshape);
-            UpdateONNXType(src->Inputs()[0].GetDataType(), input2Reshape);
+            //UpdateONNXType(src->Inputs()[1].GetDataType(), input1Reshape);
+            //UpdateONNXType(src->Inputs()[0].GetDataType(), input2Reshape);
 
-            ONNXIR::NodeArg inputOutput1Arg(orderedInputs[0].Name() + string("_reshape0"), &input1Reshape);
-            ONNXIR::NodeArg inputOutput2Arg(orderedInputs[1].Name() + string("_reshape1"), &input2Reshape);
+            //ONNXIR::NodeArg inputOutput1Arg(orderedInputs[0].Name() + string("_reshape0"), &input1Reshape);
+            //ONNXIR::NodeArg inputOutput2Arg(orderedInputs[1].Name() + string("_reshape1"), &input2Reshape);
 
-            auto reshapeNode1 = graph->AddNode(nodeName + string("_reshape0"), "Reshape", "", { orderedInputs[0] }, { inputOutput1Arg });
-            auto reshapeNode2 = graph->AddNode(nodeName + string("_reshape1"), "Reshape", "", { orderedInputs[1] }, { inputOutput2Arg });
+            //auto reshapeNode1 = graph->AddNode(nodeName + string("_reshape0"), "Reshape", "", { orderedInputs[0] }, { inputOutput1Arg });
+            //auto reshapeNode2 = graph->AddNode(nodeName + string("_reshape1"), "Reshape", "", { orderedInputs[1] }, { inputOutput2Arg });
 
-            reshapeNode1->AddAttribute("shape", ToINTS(input1Reshape));
-            reshapeNode2->AddAttribute("shape", ToINTS(input2Reshape));
+            //reshapeNode1->AddAttribute("shape", ToINTS(input1Reshape));
+            //reshapeNode2->AddAttribute("shape", ToINTS(input2Reshape));
 
-            node = graph->AddNode(nodeName, ToOPName(src), "", { inputOutput1Arg , inputOutput2Arg }, outputs);
+            //node = graph->AddNode(nodeName, ToOPName(src), "", { inputOutput1Arg , inputOutput2Arg }, outputs);
+            node = graph->AddNode(nodeName, ToOPName(src), "", orderedInputs, outputs);
         }
         else
             node = graph->AddNode(nodeName, ToOPName(src), "", orderedInputs, outputs);

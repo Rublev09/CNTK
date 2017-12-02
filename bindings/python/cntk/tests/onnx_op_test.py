@@ -11,7 +11,7 @@ import pytest
 #############
 #helpers
 #############
-def save_validation2(x1, x2, y, file_path):
+def save_validation_2inputs(x1, x2, y, file_path):
     constant_input1 = np.reshape(x1, (x1.size))
     constant_input2 = np.reshape(x2, (x2.size))
     constant_output = np.reshape(y, (y.size))
@@ -20,7 +20,7 @@ def save_validation2(x1, x2, y, file_path):
     model = c * validation_data
     model.save(file_path, format=C.ModelFormat.ONNX)
 
-def save_validation(x,y, file_path):
+def save_validation_1input(x,y, file_path):
     constant_input = np.reshape(x, (x.size))
     constant_output = np.reshape(y, (y.size))
     validation_data = np.hstack((constant_input, constant_output))
@@ -62,7 +62,7 @@ def verify_one_input(model, data, tmpdir, name):
     assert np.allclose(o0, o1)
 
     validation_filename = os.path.join(str(tmpdir), name + R'_validation.onnx')
-    save_validation(data, o0, validation_filename)
+    save_validation_1input(data, o0, validation_filename)
 
 def verify_two_input(model, data1, data2, tmpdir, name):
     filename = os.path.join(str(tmpdir), name + R'.onnx')
@@ -77,7 +77,7 @@ def verify_two_input(model, data1, data2, tmpdir, name):
     assert np.allclose(o0, o1)
     
     validation_filename = os.path.join(str(tmpdir), name + R'_validation.onnx')
-    save_validation2(data1, data2, o0, validation_filename)
+    save_validation_2inputs(data1, data2, o0, validation_filename)
 
 #Abs
 def test_Abs(tmpdir):
@@ -117,6 +117,10 @@ def test_ArgMax(tmpdir):
     model = C.argmax(data, 0)
 
     verify_no_input(model, tmpdir, 'ArgMax_0')
+
+    x = C.input_variable(shape)
+    model = C.argmax(x, 0)
+    verify_one_input(model, data, tmpdir, 'ArgMax_1')
 
 #ArgMin
 def test_ArgMin(tmpdir):

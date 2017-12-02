@@ -298,6 +298,15 @@ namespace ONNX
         // { L"", "Squeeze" },
     };
 
+    std::map<std::pair<string, int>, bool> Operators::_onnxOpInputIndexToHasBatchAxis = 
+    { 
+        {{"Abs", 0}, true}, 
+        {{"Conv", 1}, false},
+        {{"ConvTranspose", 1}, false},
+        {{"MatMul", 0}, false}, 
+        {{"MatMul", 1 }, false },
+    };
+
     const AttributesMapping& Operators::FindAttributeMap(const std::wstring &cntkOpName, const std::wstring& cntkAttributeOpName)
     {
         std::unordered_multimap<std::wstring, AttributesMapping>::iterator itNodeFn = 

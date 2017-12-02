@@ -29,11 +29,12 @@ public:
 
 private:
 
+    static bool NodeHasBatchAxisAsInput(const Node *node);
     static FunctionPtr CreateCNTKNode(const Node *node, const std::vector<Variable> &inputs,
         const DeviceDescriptor& computeDevice);
     static Constant CreateConstant(const Node *node, const DeviceDescriptor& computeDevice);
     static Constant CreateConstant(const onnx::TensorProto &valueProto, const std::string &nodeName,
-        const DeviceDescriptor& computeDevice);
+        bool hasBatchAxis, const DeviceDescriptor& computeDevice);
     static Variable CreateLeafVariableOrConstant(const NodeArg *nodeArg, const Graph *graph,
         const DeviceDescriptor& computeDevice);
     static FunctionPtr CreateFunction(const Node *node, const std::vector<Variable> &inputs);
@@ -281,11 +282,12 @@ Constant ONNXToCNTKHelper::CreateConstant(const Node *node, const DeviceDescript
     NodeAttributes::const_iterator itValue = node->GetAttributes().find("value");
     const onnx::TensorProto valueProto = itValue->second.t();
 
-    return CreateConstant(valueProto, node->Name(), computeDevice);
+    bool hasBatchAxis = NodeHasBatchAxisAsInput(node);
+    return CreateConstant(valueProto, node->Name(), hasBatchAxis, computeDevice);
 }
 
 Constant ONNXToCNTKHelper::CreateConstant(const onnx::TensorProto &valueProto, const std::string &nodeName,
-    const DeviceDescriptor& computeDevice)
+    bool hasBatchAxis, const DeviceDescriptor& computeDevice)
 {
     auto dataType = valueProto.data_type();
 
@@ -293,6 +295,16 @@ Constant ONNXToCNTKHelper::CreateConstant(const onnx::TensorProto &valueProto, c
 
     // the following code is to revert CNTKToONNXHelper::ToTensorShape.to restore a CNTK NDArray
     NDShape reversedShape = ReverseShape(shape);
+
+    // ONNX spec has batch axis for input axis. CNTK does not have batch axis. remove batch axis if it is in ONNX
+    if (hasBatchAxis)
+    {
+        if (reversedShape[reversedShape.Rank() - 1] != 1)
+        {
+            LogicError("batch size shall be 1");
+        }
+        reversedShape = reversedShape.SubShape(0, reversedShape.Rank() - 1);
+    }
 
     auto totalSize = shape.TotalSize();
 
@@ -420,7 +432,7 @@ Variable ONNXToCNTKHelper::CreateLeafVariableOrConstant(const NodeArg *nodeArg, 
     onnx::TensorProto valueProto;
     if (graph->GetInitialTensor(nodeName, valueProto))
     {
-        return CreateConstant(valueProto, nodeName, computeDevice);
+        return CreateConstant(valueProto, nodeName, false, computeDevice);
     }
 
     auto dataType = FromONNXType(nodeArg->ToProto().type());
@@ -1332,7 +1344,9 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
     {
         NDShape newShape = GetNamedAttributeAsShape(node, "shape", false);
         if (inputs[0].HasBatchAxis())
+        {
             newShape = newShape.SubShape(0, newShape.Rank() - 1);
+        }
 
         FunctionPtr cntkFunction = Reshape(inputs[0], newShape, ToWString(node->Name()));
         return cntkFunction;
@@ -1451,6 +1465,25 @@ FunctionPtr ONNXToCNTKHelper::FromONNXNode(const Node *node, ONNXToCNTKMap &cons
     FunctionPtr cntkFunction = CreateCNTKNode(node, inputs, computeDevice);
     constructedNodeMap.insert(ONNXToCNTKMap::value_type(node, cntkFunction));
     return cntkFunction;
+}
+
+bool ONNXToCNTKHelper::NodeHasBatchAxisAsInput(const Node *node)
+{
+    Node::NodeConstIterator it = node->OutputNodes_begin();
+    if (it != node->OutputNodes_end())
+    {
+        const Node *parent = *it;
+        const std::vector<NodeArg>& inputNodeArgs = parent->InputDefs();
+        for (int index = 0; index < inputNodeArgs.size(); index++)
+        {
+            const NodeArg& nodeArg = inputNodeArgs[index];
+            if (nodeArg.Name() == node->Name())
+            {
+                return Operators::SpecHasPatchAxis(parent->OpType(), index);
+            }
+        }
+    }
+    return false;
 }
 
 FunctionPtr ONNXToCNTKHelper::CreateCNTKNode(const Node *node, const std::vector<Variable> &inputs,
