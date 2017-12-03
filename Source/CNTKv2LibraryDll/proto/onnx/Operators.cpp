@@ -316,8 +316,8 @@ namespace ONNX
 
         if (itNodeFn == _cntkToONNXOpName.end())
         {
-            LogicError((string("Cannot mapping to ONNX op from CNTK ReduceElements operation: ") + 
-                ToString(cntkOpName) + "/" + ToString(cntkAttributeOpName)).c_str());
+            LogicError("Cannot mapping to ONNX op from CNTK ReduceElements operation: %s / %s",
+                ToString(cntkOpName).c_str(), ToString(cntkAttributeOpName).c_str());
         }
 
         return itNodeFn->second;
