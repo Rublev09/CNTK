@@ -205,7 +205,6 @@ namespace ONNX
         { L"ElementMin", { {
             { L"ElementMin", "Min" },
         } } },
-        // { L"", "Sum" },
         { L"Hardmax",{ {
             { L"Hardmax", "Hardmax" },
             { L"axis", "axis" },
@@ -307,6 +306,8 @@ namespace ONNX
         {{"MatMul", 1 }, false },
     };
 
+    // given a cntkOpName and cntk attribute OpName which is saved in CNTK::Function's attribute,
+    // return a map from cntk attribute name to onnx attribute name. 
     const AttributesMapping& Operators::FindAttributeMap(const std::wstring &cntkOpName, const std::wstring& cntkAttributeOpName)
     {
         std::unordered_multimap<std::wstring, AttributesMapping>::iterator itNodeFn = 
@@ -316,7 +317,7 @@ namespace ONNX
 
         if (itNodeFn == _cntkToONNXOpName.end())
         {
-            LogicError("Cannot mapping to ONNX op from CNTK ReduceElements operation: %s / %s",
+            LogicError("Cannot map to ONNX op from CNTK ReduceElements operation: %s / %s",
                 ToString(cntkOpName).c_str(), ToString(cntkAttributeOpName).c_str());
         }
 

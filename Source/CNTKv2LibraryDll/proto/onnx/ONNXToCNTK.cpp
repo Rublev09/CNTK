@@ -712,7 +712,7 @@ std::vector<Axis> ONNXToCNTKHelper::ArgsortAxis(const std::vector<Axis> &permuta
 {
     std::vector<Axis> argsortedPermutation = permutation;
     std::sort(argsortedPermutation.begin(), argsortedPermutation.end(),
-        [permutation](Axis i1, Axis i2) {
+        [permutation](Axis &i1, Axis &i2) {
         return permutation[i1.StaticAxisIndex()].StaticAxisIndex() < permutation[i2.StaticAxisIndex()].StaticAxisIndex(); });
     return argsortedPermutation;
 }
@@ -860,7 +860,7 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
         std::vector<Axis> axes = GetNamedAttributeAsAxis(node, "axis");
         if (axes.size() != 1)
         {
-            LogicError("Flatten op should has one axis.");
+            LogicError("Flatten op should have one axis.");
         }
 
         size_t dim0 = inputs[0].Shape().SubShape(0, axes[0].StaticAxisIndex() - 1).TotalSize();
@@ -891,22 +891,6 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
         Constant minVariable = Constant::Scalar(DataType::Float, minValue);
         Constant maxVariable = Constant::Scalar(DataType::Float, maxValue);
         FunctionPtr cntkFunction = Clip(inputs[0], minVariable, maxVariable, ToWString(node->Name()));
-        return cntkFunction;
-    }
-    else if (onnxOpName == "FC")
-    {
-        // TODO: this is experimental code to load Facebook Caffe models. 
-        // "FC" is not in ONNX standard. Two cases need to be handled with 
-        // this type of Caffe model. 
-        // 1. Make trailing dimensions of operand 1 matches the heading dimensions of operant 2.
-        //  For example, with shape [1, dim0, dim1] * [dim2, dim3], we need to reshape 
-        //  first operand to [1, dim0 * dim1] In this case dim0 * dim1 has to be equal to dim2.
-        // 2. Broadcase bias if needed.
-        Variable input0 = inputs[0], input1 = inputs[1];
-        input0 = Reshape(input0, {1, NDShape::InferredDimension});
-
-        FunctionPtr cntkFunction = Reshape(Times(input0, input1, ToWString(node->Name())), { NDShape::InferredDimension });
-        cntkFunction = Plus(cntkFunction, inputs[2], ToWString(node->Name()));
         return cntkFunction;
     }
     else if (onnxOpName == "Sum")
@@ -1208,8 +1192,8 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
     }
     else if (onnxOpName == "Selu")
     {
-        double alpha = (double)GetNamedAttributeAsFloat(node, "alpha", 1.6732F);
-        double gamma= (double)GetNamedAttributeAsFloat(node, "gamma", 1.0507F);
+        double alpha = static_cast<double>(GetNamedAttributeAsFloat(node, "alpha", 1.6732F));
+        double gamma= static_cast<double>(GetNamedAttributeAsFloat(node, "gamma", 1.0507F));
         FunctionPtr cntkFunction = SELU(inputs[0], gamma, alpha, ToWString(node->Name()));
         return cntkFunction;
     }
@@ -1280,7 +1264,7 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
     }
     else if (onnxOpName == "Softplus")
     {
-        // CNTK Softplus pre-append a input placehold so has to use inputs[1]
+        // CNTK Softplus pre-append a input placehold, so we has to use inputs[1]
         FunctionPtr cntkFunction = Softplus(inputs[1], ToWString(node->Name()));
         return cntkFunction;
     }
@@ -1409,8 +1393,8 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
         std::vector<Axis> permutation = GetNamedAttributeAsAxis(node, "perm");
         // remove batch axis
         permutation.erase(permutation.begin());
-        std::vector<Axis> argsirtedPermutation = ArgsortAxis(permutation);
-        FunctionPtr cntkFunction = Transpose(inputs[0], argsirtedPermutation, ToWString(node->Name()));
+        std::vector<Axis> argsortedPermutation = ArgsortAxis(permutation);
+        FunctionPtr cntkFunction = Transpose(inputs[0], argsortedPermutation, ToWString(node->Name()));
         return cntkFunction;
     }
     else if (onnxOpName == "Gather")

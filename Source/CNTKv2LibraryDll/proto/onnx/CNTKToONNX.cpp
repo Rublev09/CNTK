@@ -744,7 +744,6 @@ void CNTKToONNXHelper::CopyAttributes(const FunctionPtr& src, ONNXIR::Node* node
         {
             auto spatial = (int64_t)((bool)src->Attributes()[L"spatial"].Value<bool>() ? 1 : 0);
             auto normalizationTimeConstant = (float)src->Attributes()[L"normalizationTimeConstant"].Value<double>();
-            // auto blendTimeConstant = (float)src->Attributes()[L"blendTimeConstant"].Value<double>();
             auto epsilon = (float)src->Attributes()[L"epsilon"].Value<double>();
 
             //
@@ -843,7 +842,7 @@ void CNTKToONNXHelper::CopyAttributes(const FunctionPtr& src, ONNXIR::Node* node
         else if (src->OpName() == L"TransposeAxes")
         {
             std::vector<Axis> permutation = AsVector<Axis>(src->Attributes()[L"axisVec"].Value<std::vector<DictionaryValue>>());
-            // CNTK permutation attribute is argsorted. Shall redo argsort (undo) to get the original python/ONNX perm aattribute.
+            // CNTK permutation attribute is argsorted. Shall redo argsort (undo) to get the original python/ONNX perm attribute.
             std::vector<int64_t> perm = AxesToINTSArgsortIncrementBatchAxis(permutation);
             node->AddAttribute(attributesMap[L"axisVec"], perm);
         }
@@ -893,6 +892,8 @@ void CNTKToONNXHelper::CopyAttributes(const FunctionPtr& src, ONNXIR::Node* node
             NDShape broadcastShape;
             bool broadcast = false;
             int axis = 0;
+
+            // TODO: handle egde cases where input[0] has batch axis but not input[1].
             std::tie<NDShape, bool, int>(broadcastShape, broadcast, axis) =
                 AdjustForBroadcastShape(src->Inputs()[0].Shape(), src->Inputs()[1].Shape(), 
                     src->Inputs()[0].HasBatchAxis() && !src->Inputs()[1].HasBatchAxis());
@@ -1150,6 +1151,11 @@ ONNXIR::Node* CNTKToONNXHelper::AddNode(const FunctionPtr& src, ONNXIR::Graph* g
 
         if (reductionRank > 1) // We need to insert reshape.
         {
+            // TODO: This block of code may be taken care by broadcase already - 
+            // all tests are passing with out this code. This code is causing model
+            // test failures. I am commenting out this code block for now. Will final remove
+            // it after 2.3.1 release.
+
             //auto input1Reshape = ReduceRank(input1Shape, reductionRank, true);
             //auto input2Reshape = ReduceRank(input2Shape, reductionRank, false);
 
