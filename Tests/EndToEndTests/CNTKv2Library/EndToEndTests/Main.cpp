@@ -23,11 +23,6 @@ void TrainTruncatedLSTMAcousticModelClassifier();
 void TestFrameMode();
 void TestDistributedCheckpointing();
 
-#include <string>
-using namespace std;
-
-#include <codecvt>
-
 int main(int argc, char *argv[])
 {
 #if defined(_MSC_VER)

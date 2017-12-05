@@ -1407,7 +1407,7 @@ FunctionPtr ONNXToCNTKHelper::CreateFunction(const Node *node, const std::vector
         else if (mode == "edge")
             NOT_IMPLEMENTED
         else
-            LogicError("Pad: Invalid 'mode' attribute value, %s, specified for Pad node.", mode);
+            LogicError("Pad: Invalid 'mode' attribute value, %s, specified for Pad node.", mode.c_str());
 
         if (cntkPaddingMode == CNTK::PaddingMode::CONSTANTPAD)
             cntkConstantValue = static_cast<double>(GetNamedAttributeAsFloat(node, "value", 0.0));
