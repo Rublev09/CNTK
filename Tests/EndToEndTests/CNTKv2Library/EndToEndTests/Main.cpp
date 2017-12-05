@@ -28,48 +28,8 @@ using namespace std;
 
 #include <codecvt>
 
-std::string ToString(const std::wstring& wstring)
-{
-    std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
-    return converter.to_bytes(wstring);
-}
-
-static void PrintGraph(FunctionPtr function, int spaces, bool useName = false)
-{
-    if (function->Inputs().size() == 0)
-    {
-        //cout << string(spaces, '.') + "(" + ToString(useName ? function->Name() : function->Uid()) + ")" +
-        //    "(" + ToString(function->OpName()) + ")" + ToString(function->AsString()) << std::endl;
-        return;
-    }
-
-    for (auto input : function->Inputs())
-    {
-        //cout << string(spaces, '.') + "(" + ToString(useName ? function->Name() : function->Uid()) + ")" +
-        //    "(" + ToString(function->OpName()) + ")" + "->" +
-        //    "(" + ToString(useName ? input.Name() : input.Uid()) + ")" + ToString(input.AsString()) << std::endl;
-    }
-
-    if (function->OpName() == L"Convolution")
-    {
-        cout << string(spaces, '.') << ToString(function->OpName()) << "///" << ToString(function->Name()) << endl;
-    }
-
-    for (auto input : function->Inputs())
-    {
-        if (input.Owner() != NULL)
-        {
-            FunctionPtr f = input.Owner();
-            PrintGraph(f, spaces + 4, useName);
-        }
-    }
-}
-
 int main(int argc, char *argv[])
 {
-    //FunctionPtr f = Function::Load(L"E:/LiqunWA/CNTK/ONNX/NIPS/cntk_p3d_demo/p3d_resnet_kinetics.cntkmodel", 
-    //    DeviceDescriptor::CPUDevice(), ModelFormat::CNTKv2);
-
 #if defined(_MSC_VER)
     // in case of asserts in debug mode, print the message into stderr and throw exception
     if (_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, HandleDebugAssert) == -1) {
